@@ -1,0 +1,27 @@
+[project]
+name = "gdrive-dir-exporter"
+version = "0.1.0"
+description = "Download a Google Drive folder recursively with change detection"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "google-api-python-client>=2.0",
+    "google-auth-httplib2>=0.2",
+    "google-auth-oauthlib>=1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+include = ["main.py"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

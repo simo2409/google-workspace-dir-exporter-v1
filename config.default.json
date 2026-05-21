@@ -1,0 +1,14 @@
+{
+  "output": "~/Downloads/drive-exports/",
+  "folders": [
+    {
+      "url": "https://drive.google.com/drive/folders/FOLDER_A_ID",
+      "output": "~/Documents/project-a/"
+    },
+    {
+      "url": "https://drive.google.com/drive/folders/FOLDER_B_ID"
+    }
+  ],
+  "whisper_dir": "~/path/to/whisper.cpp",
+  "whisper_model": "models/ggml-large-v3-turbo.bin"
+}
