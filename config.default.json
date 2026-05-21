@@ -10,5 +10,6 @@
     }
   ],
   "whisper_dir": "~/path/to/whisper.cpp",
-  "whisper_model": "models/ggml-large-v3-turbo.bin"
+  "whisper_model": "models/ggml-large-v3-turbo.bin",
+  "history": true
 }

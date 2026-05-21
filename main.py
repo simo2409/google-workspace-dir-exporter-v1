@@ -35,6 +35,7 @@ CREDENTIALS_FILE = _SCRIPT_DIR / "credentials.json"
 TOKEN_FILE = _SCRIPT_DIR / "token.json"
 CONFIG_FILE = _SCRIPT_DIR / "config.json"
 METADATA_FILE = "_metadata.json"
+HISTORY_FILE = "history.json"
 
 GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder"
 
@@ -258,6 +259,25 @@ def save_metadata(base_dir: Path, metadata: dict) -> None:
     meta_path.write_text(json.dumps(metadata, indent=2))
 
 
+def load_history(base_dir: Path) -> dict:
+    """Load history.json as a dict keyed by driveFileId for easy merging."""
+    history_path = base_dir / HISTORY_FILE
+    if history_path.exists():
+        entries = json.loads(history_path.read_text())
+        return {e["driveFileId"]: e for e in entries if "driveFileId" in e}
+    return {}
+
+
+def save_history(base_dir: Path, history: dict) -> None:
+    """Persist history as a JSON list sorted by modifiedTime descending."""
+    entries = sorted(
+        history.values(),
+        key=lambda e: e.get("modifiedTime", ""),
+        reverse=True,
+    )
+    (base_dir / HISTORY_FILE).write_text(json.dumps(entries, indent=2, ensure_ascii=False))
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -302,6 +322,8 @@ def download_file_item(
     base_dir: Path,
     metadata: dict,
     stats: dict,
+    history: dict | None = None,
+    today: str = "",
     whisper_dir: Path | None = None,
     whisper_model: str | None = None,
 ) -> None:
@@ -326,10 +348,25 @@ def download_file_item(
     local_path = dest_dir / filename
     cached = metadata.get(file_id, {})
 
+    def _update_history(downloaded_path: Path | None) -> None:
+        if history is None:
+            return
+        entry = history.get(file_id, {})
+        entry.update({
+            "driveFileId": file_id,
+            "filename": filename,
+            "modifiedTime": modified_time,
+            "lastSeen": today,
+        })
+        if downloaded_path is not None:
+            entry["path"] = str(downloaded_path.relative_to(base_dir))
+        history[file_id] = entry
+
     if is_native:
         if cached.get("modifiedTime") == modified_time:
             print(f"  [SKIP] '{filename}' unchanged (modifiedTime match)")
             stats["skipped"] += 1
+            _update_history(None)
             return
         if cached:
             print(f"  [UPDATE] '{filename}' changed on Drive, re-downloading...")
@@ -340,6 +377,7 @@ def download_file_item(
         if drive_md5 and cached.get("md5") == drive_md5:
             print(f"  [SKIP] '{filename}' unchanged (MD5 match)")
             stats["skipped"] += 1
+            _update_history(None)
             return
         if cached:
             stats["updated"] += 1
@@ -374,6 +412,7 @@ def download_file_item(
         "modifiedTime": modified_time,
         "md5": drive_md5,
     }
+    _update_history(local_path)
 
     if mime_type.startswith(AUDIO_VIDEO_MIME_PREFIXES):
         if whisper_dir and whisper_model:
@@ -394,6 +433,8 @@ def download_folder_recursive(
     base_dir: Path,
     metadata: dict,
     stats: dict,
+    history: dict | None = None,
+    today: str = "",
     whisper_dir: Path | None = None,
     whisper_model: str | None = None,
 ) -> None:
@@ -411,13 +452,13 @@ def download_folder_recursive(
             print(f"\n  Folder: {item['name']}/")
             download_folder_recursive(
                 service, item["id"], subfolder, base_dir, metadata, stats,
-                whisper_dir, whisper_model,
+                history, today, whisper_dir, whisper_model,
             )
         else:
             try:
                 download_file_item(
                     service, item, dest_dir, base_dir, metadata, stats,
-                    whisper_dir, whisper_model,
+                    history, today, whisper_dir, whisper_model,
                 )
             except Exception as e:
                 print(f"  [ERROR] '{item.get('name', item['id'])}': {e}")
@@ -435,6 +476,7 @@ def main() -> None:
     config = load_config()
     global_output: str | None = config.get("output")
     folder_entries: list[dict] = config["folders"]
+    enable_history: bool = config.get("history", True)
 
     if not folder_entries:
         sys.exit("No folders listed in config.json 'folders'. Nothing to do.")
@@ -480,13 +522,17 @@ def main() -> None:
         dest_dir.mkdir(parents=True, exist_ok=True)
 
         metadata = load_metadata(base_dir)
+        history = load_history(base_dir) if enable_history else None
         stats = {"downloaded": 0, "skipped": 0, "updated": 0, "errors": 0}
 
         print(f"\nDownloading folder: '{folder_name}' → {dest_dir}/")
         download_folder_recursive(
             service, folder_id, dest_dir, base_dir, metadata, stats,
-            whisper_dir, whisper_model,
+            history, today, whisper_dir, whisper_model,
         )
+
+        if history is not None:
+            save_history(base_dir, history)
 
         for k in total_stats:
             total_stats[k] += stats[k]
